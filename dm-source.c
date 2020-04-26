@@ -35,7 +35,7 @@ struct dm_source {
 	gs_image_file_t diceimage;
 	gs_texture_t *comboTexture;
 	bool visible;
-	bool showdicecount;	
+	bool showdicecount;
 	uint32_t height;
 };
 
@@ -216,7 +216,7 @@ bool updateFileList(struct dm_source *context)
 			if (tbstring[j] == ';') count++;
 			else if (tbstring[j] == '=') ecount++;
 		}
-		
+
 		struct dstr dcardlist = { 0 };
 		//copy the list so we don't alter it
 		dstr_copy(&dcardlist, tbstring);
@@ -227,7 +227,7 @@ bool updateFileList(struct dm_source *context)
 				if (cardsString[t] == '&')
 					break;
 				dstr_cat_ch(&dcardlist, cardsString[t]);
-			}					
+			}
 		}
 		token = strtok(dcardlist.array, s);
 
@@ -241,7 +241,7 @@ bool updateFileList(struct dm_source *context)
 			dstr_cat_ch(&dpath, '/');
 			//dstr_copy(&dice, "Dice: ");
 			dstr_cat_ch(&dice, token[0]);
-			
+
 			for (int c = 2; c < strlen(token); c++) {
 				dstr_cat_ch(&dcard, token[c]);
 			}
@@ -249,7 +249,7 @@ bool updateFileList(struct dm_source *context)
 			dstr_cat(&dpath, ".jpg");
 
 			da_push_back(context->files, &dpath.array);
-			
+
 			//downlaod files if they don't exist
 			FILE* fp = fopen(dpath.array, "r");
 			if (fp) {
@@ -274,7 +274,7 @@ bool updateFileList(struct dm_source *context)
 							dstr_cat(&url, "&res=l");
 							download_jpeg(url.array, dpath.array);
 						}
-						
+
 					}
 				}
 				dstr_free(&url);
@@ -298,7 +298,7 @@ bool updateFileList(struct dm_source *context)
 					dstr_copy(&diceurl, "http://dicecoalition.com/cardservice/Cards/Dice");
 					dstr_cat(&diceurl, dice.array);
 					dstr_cat(&diceurl, ".jpg");
-					download_jpeg(diceurl.array, diceImage.array);					
+					download_jpeg(diceurl.array, diceImage.array);
 				}
 				//TODO: Was trying to generate image on the fly.  Let's just download one instead
 				/*
@@ -318,10 +318,10 @@ bool updateFileList(struct dm_source *context)
 			}
 
 			da_push_back(context->dice, &diceImage.array);
-			dstr_free(&diceImage);
-			dstr_free(&dcard);
-			dstr_free(&dpath);
-			dstr_free(&dice);
+			//dstr_free(&diceImage);
+			//dstr_free(&dcard);
+			//dstr_free(&dpath);
+			//dstr_free(&dice);
 			i++;
 			token = strtok(NULL, s);
 		}
@@ -339,7 +339,10 @@ void updateTextures(struct dm_source *context) {
 		obs_enter_graphics();
 		gs_image_file_free(&context->image);
 		gs_image_file_free(&context->diceimage);
-		gs_texture_destroy(context->comboTexture);
+		if (context->comboTexture != NULL) {
+			gs_texture_destroy(context->comboTexture);
+			context->comboTexture = NULL;
+		}
 		obs_leave_graphics();
 
 		gs_image_file_init(&context->image, file);
@@ -348,9 +351,11 @@ void updateTextures(struct dm_source *context) {
 		gs_image_file_init_texture(&context->image);
 		obs_leave_graphics();
 
-		if (!context->image.loaded)
+		if (!context->image.loaded) {
 			warn("failed to load texture '%s'", file);
-
+			//file list may of gotten corrupted by a bad update.  Try to re-parse
+			updateFileList(context);
+		}
 		if (context->showdicecount)
 		{
 			gs_image_file_init(&context->diceimage, context->dice.array[context->currentIndex]);
@@ -359,23 +364,13 @@ void updateTextures(struct dm_source *context) {
 			gs_image_file_init_texture(&context->diceimage);
 			obs_leave_graphics();
 
-			obs_enter_graphics();			
-			//context->comboTexture = gs_texture_create(context->image.cx, context->image.cy + context->diceimage.cy, GS_RGBA, 1,
-			//	&combinedData, 0);
-			uint32_t height = context->image.cy;
-			if (height % 2 != 0) {
-				height = height - 1;
-			}
-			context->comboTexture = gs_texture_create_gdi(context->diceimage.cx, height + context->diceimage.cy);
-			//context->comboTexture = gs_texture_create(context->image.cx, context->image.cy + context->diceimage.cy, GS_BGRA, 1, NULL, GS_DYNAMIC);
+			obs_enter_graphics();
+						
+			context->comboTexture = gs_texture_create_gdi(context->diceimage.cx, context->image.cy + context->diceimage.cy);
 			
-			gs_copy_texture_region(context->comboTexture, 0, 0, context->image.texture, 0, 0, context->diceimage.cx, height);
-			gs_copy_texture_region(context->comboTexture, 0, height, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
-			obs_leave_graphics();
-			//context->image.texture_data = combinedData;
-			//context->image.cy += context->diceimage.cy;
-			//gs_image_file_init_texture(&context->image);
-	
+			gs_copy_texture_region(context->comboTexture, 0, 0, context->image.texture, 0, 0, context->diceimage.cx, context->image.cy);
+			gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
+			obs_leave_graphics();		
 
 			if (!context->diceimage.loaded)
 				warn("failed to load texture '%s'", context->dice.array[0]);
@@ -402,7 +397,7 @@ static void dm_source_load(struct dm_source *context)
 	if (updated) {
 		updateTextures(context);
 	}
-	
+
 }
 
 static void dm_source_unload(struct dm_source *context)
@@ -410,7 +405,10 @@ static void dm_source_unload(struct dm_source *context)
 	obs_enter_graphics();
 	gs_image_file_free(&context->image);
 	gs_image_file_free(&context->diceimage);
-	gs_texture_destroy(context->comboTexture);
+	if (context->comboTexture != NULL) {		
+		gs_texture_destroy(context->comboTexture);
+		context->comboTexture = NULL;
+	}
 	obs_leave_graphics();
 }
 
@@ -446,7 +444,7 @@ static void dm_source_destroy(void *data)
 
 	if (context->tbstring)
 		bfree(context->tbstring);
-	bfree(context);	
+	bfree(context);
 }
 
 static obs_properties_t *dm_source_properties(void *data)
@@ -458,7 +456,7 @@ static obs_properties_t *dm_source_properties(void *data)
 
 	obs_properties_add_text(props, "tbstring", obs_module_text("Team Builder String"), OBS_TEXT_DEFAULT);
 	obs_properties_add_path(props, "imagefolder", obs_module_text("Image Folder"), OBS_PATH_DIRECTORY, NULL, "c:/temp/cards");
-	
+
 	obs_properties_add_int(props, "speed", obs_module_text("Cycle Speed (s)"), 0, 4096, 1);
 	obs_properties_add_bool(props, "dicecount", obs_module_text("Show Dice Count"));
 
@@ -468,7 +466,7 @@ static obs_properties_t *dm_source_properties(void *data)
 static void dm_source_render(void *data, gs_effect_t *effect)
 {
 	struct dm_source *context = data;
-	
+
 	if (!context->image.texture)
 		return;
 	if (!context->showdicecount) {
@@ -481,7 +479,7 @@ static void dm_source_render(void *data, gs_effect_t *effect)
 		gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"),
 			context->comboTexture);
 		gs_draw_sprite(context->comboTexture, 0,
-			context->diceimage.cx, context->image.cy+ context->diceimage.cy);
+			context->diceimage.cx, context->image.cy + context->diceimage.cy);
 	}
 }
 
@@ -518,7 +516,7 @@ static void dm_source_show(void *data)
 	struct dm_source *context = data;
 	context->visible = true;
 	//if (!context->persistent)
-		dm_source_load(context);
+	dm_source_load(context);
 }
 
 static void dm_source_hide(void *data)
@@ -526,11 +524,11 @@ static void dm_source_hide(void *data)
 	struct dm_source *context = data;
 	context->visible = false;
 	//if (!context->persistent)
-		dm_source_unload(context);
+	dm_source_unload(context);
 }
 
 static void dm_source_tick(void *data, float seconds)
-{	
+{
 	struct dm_source *context = data;
 	if (context->visible) {
 		uint64_t frame_time = obs_get_video_frame_time();
@@ -557,7 +555,7 @@ struct obs_source_info dm_source_info = {
 	.get_name = dm_source_get_name,
 	.create = dm_source_create,
 	.destroy = dm_source_destroy,
-	.update = dm_source_update,	
+	.update = dm_source_update,
 	.get_defaults = dm_source_defaults,
 	.show = dm_source_show,
 	.hide = dm_source_hide,
@@ -565,7 +563,7 @@ struct obs_source_info dm_source_info = {
 	.get_height = dm_source_getheight,
 	.video_render = dm_source_render,
 	.video_tick = dm_source_tick,
-	.get_properties = dm_source_properties	
+	.get_properties = dm_source_properties
 };
 
 OBS_DECLARE_MODULE()
