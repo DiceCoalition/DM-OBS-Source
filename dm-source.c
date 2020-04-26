@@ -36,6 +36,7 @@ struct dm_source {
 	gs_texture_t *comboTexture;
 	bool visible;
 	bool showdicecount;
+	bool useplaymatlayout;
 	uint32_t height;
 };
 
@@ -332,10 +333,8 @@ bool updateFileList(struct dm_source *context)
 }
 
 void updateTextures(struct dm_source *context) {
-	char* file = context->files.array[context->currentIndex];
-	if (file == NULL)
-		warn("Image list is empty");
-	else {
+	if (context->useplaymatlayout)
+	{		
 		obs_enter_graphics();
 		gs_image_file_free(&context->image);
 		gs_image_file_free(&context->diceimage);
@@ -345,35 +344,66 @@ void updateTextures(struct dm_source *context) {
 		}
 		obs_leave_graphics();
 
+		char* file = context->files.array[0];
 		gs_image_file_init(&context->image, file);
 
 		obs_enter_graphics();
 		gs_image_file_init_texture(&context->image);
 		obs_leave_graphics();
-
-		if (!context->image.loaded) {
-			warn("failed to load texture '%s'", file);
-			//file list may of gotten corrupted by a bad update.  Try to re-parse
-			updateFileList(context);
-		}
-		if (context->showdicecount)
+		char* file = context->files.array[0];
+		for (int i = 1; i < context->files.num; i++)
 		{
-			gs_image_file_init(&context->diceimage, context->dice.array[context->currentIndex]);
-
+			char* file = context->files.array[i];
+			if (file == NULL)
+				warn("Image list is empty");
+			else {
+			}
+		}
+	}
+	else{
+		char* file = context->files.array[context->currentIndex];
+		if (file == NULL)
+			warn("Image list is empty");
+		else {
 			obs_enter_graphics();
-			gs_image_file_init_texture(&context->diceimage);
+			gs_image_file_free(&context->image);
+			gs_image_file_free(&context->diceimage);
+			if (context->comboTexture != NULL) {
+				gs_texture_destroy(context->comboTexture);
+				context->comboTexture = NULL;
+			}
 			obs_leave_graphics();
 
-			obs_enter_graphics();
-						
-			context->comboTexture = gs_texture_create_gdi(context->diceimage.cx, context->image.cy + context->diceimage.cy);
-			
-			gs_copy_texture_region(context->comboTexture, 0, 0, context->image.texture, 0, 0, context->diceimage.cx, context->image.cy);
-			gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
-			obs_leave_graphics();		
+			gs_image_file_init(&context->image, file);
 
-			if (!context->diceimage.loaded)
-				warn("failed to load texture '%s'", context->dice.array[0]);
+			obs_enter_graphics();
+			gs_image_file_init_texture(&context->image);
+			obs_leave_graphics();
+
+			if (!context->image.loaded) {
+				warn("failed to load texture '%s'", file);
+				//file list may of gotten corrupted by a bad update.  Try to re-parse
+				updateFileList(context);
+			}
+			if (context->showdicecount)
+			{
+				gs_image_file_init(&context->diceimage, context->dice.array[context->currentIndex]);
+
+				obs_enter_graphics();
+				gs_image_file_init_texture(&context->diceimage);
+				obs_leave_graphics();
+
+				obs_enter_graphics();
+
+				context->comboTexture = gs_texture_create_gdi(context->diceimage.cx, context->image.cy + context->diceimage.cy);
+
+				gs_copy_texture_region(context->comboTexture, 0, 0, context->image.texture, 0, 0, context->diceimage.cx, context->image.cy);
+				gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
+				obs_leave_graphics();
+
+				if (!context->diceimage.loaded)
+					warn("failed to load texture '%s'", context->dice.array[0]);
+			}
 		}
 	}
 }
@@ -419,11 +449,13 @@ static void dm_source_update(void *data, obs_data_t *settings)
 	char* imagefolder = (char*)obs_data_get_string(settings, "imagefolder");
 	uint32_t speed = (uint32_t)obs_data_get_int(settings, "speed");
 	bool dicecount = (bool)obs_data_get_bool(settings, "dicecount");
+	bool playmat = (bool)obs_data_get_bool(settings, "useplaymat");
 
 	context->imagefolder = imagefolder;
 	context->tbstring = tbstring;
 	context->speed = speed;
 	context->showdicecount = dicecount;
+	context->useplaymatlayout = playmat;
 	dm_source_load(data);
 }
 
@@ -460,6 +492,7 @@ static obs_properties_t *dm_source_properties(void *data)
 	obs_properties_add_int(props, "speed", obs_module_text("Cycle Speed (s)"), 0, 4096, 1);
 	obs_properties_add_bool(props, "dicecount", obs_module_text("Show Dice Count"));
 
+	obs_properties_add_bool(props, "useplaymat", obs_module_text("Use Playmat Layout"));
 	return props;
 }
 
@@ -509,6 +542,8 @@ static void dm_source_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "imagefolder", "c:/temp/cards");
 	obs_data_set_default_int(settings, "speed", 10);
 	obs_data_set_default_bool(settings, "dicecount", false);
+	obs_data_set_default_bool(settings, "usePlaymat", false);
+}
 }
 
 static void dm_source_show(void *data)
