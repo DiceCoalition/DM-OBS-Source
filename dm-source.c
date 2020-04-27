@@ -344,23 +344,74 @@ void updateTextures(struct dm_source *context) {
 		}
 		obs_leave_graphics();
 
+		int maxheight = 0;
+		obs_enter_graphics();
+		for (int i = 0; i < context->files.num; i++)
+		{
+			char* file = context->files.array[i];
+			gs_image_file_init(&context->image, file);
+			if (context->image.cy > maxheight)
+				maxheight = context->image.cy;
+			gs_image_file_free(&context->image);
+		}
+
+		obs_leave_graphics();
 		char* file = context->files.array[0];
 		gs_image_file_init(&context->image, file);
 
 		obs_enter_graphics();
 		gs_image_file_init_texture(&context->image);
 		obs_leave_graphics();
-		char* file = context->files.array[0];
+
+		obs_enter_graphics();
+				
+		//uint32_t height = context->image.cy * 3;
+		uint32_t height = maxheight * 3;
+		context->height = height;
+		uint32_t width = height / 0.5625;
+		context->comboTexture = gs_texture_create_gdi(width, height);
+		gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->image.texture, 0, 0, context->image.cx, context->image.cy);
+		obs_leave_graphics();
 		for (int i = 1; i < context->files.num; i++)
 		{
-			char* file = context->files.array[i];
+			file = context->files.array[i];
 			if (file == NULL)
 				warn("Image list is empty");
 			else {
+				
+				gs_image_file_t cardimage;
+				gs_image_file_init(&cardimage, file);
+
+				obs_enter_graphics();
+				gs_image_file_init_texture(&cardimage);
+				obs_leave_graphics();
+
+				uint32_t xloc = cardimage.cx * (i % 4);
+				if (i % 4 > 1)
+					xloc = width - (cardimage.cx + (cardimage.cx * (i % 2)));
+				uint32_t yloc = cardimage.cy + (cardimage.cy * (i / 4));
+				if (i == 8) {
+					xloc = cardimage.cx;
+					yloc = 0;
+				}
+				else if (i == 9) {
+					xloc = width - cardimage.cx * 2;
+					yloc = 0;
+				}
+				obs_enter_graphics();				
+				gs_copy_texture_region(context->comboTexture, xloc, yloc, cardimage.texture, 0, 0, cardimage.cx, cardimage.cy);
+				gs_image_file_free(&cardimage);
+				obs_leave_graphics();
+
+				//if (!context->diceimage.loaded)
+				//	warn("failed to load texture '%s'", context->dice.array[0]);
 			}
 		}
+		
 	}
 	else{
+		if (context->files.num < 1)
+			return;
 		char* file = context->files.array[context->currentIndex];
 		if (file == NULL)
 			warn("Image list is empty");
@@ -502,17 +553,30 @@ static void dm_source_render(void *data, gs_effect_t *effect)
 
 	if (!context->image.texture)
 		return;
-	if (!context->showdicecount) {
-		gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"),
-			context->image.texture);
-		gs_draw_sprite(context->image.texture, 0,
-			context->image.cx, context->image.cy);
+	if (!context->useplaymatlayout) {
+		if (!context->showdicecount) {
+			gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"),
+				context->image.texture);
+			gs_draw_sprite(context->image.texture, 0,
+				context->image.cx, context->image.cy);
+		}
+		else {
+			gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"),
+				context->comboTexture);
+			gs_draw_sprite(context->comboTexture, 0,
+				context->diceimage.cx, context->image.cy + context->diceimage.cy);
+		}
 	}
-	else {
+	else
+	{
 		gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"),
 			context->comboTexture);
+		//uint32_t width = context->image.cx * 4 + context->playmatgap;
+		//uint32_t height = context->image.cy * 3;
+		uint32_t height = context->height;
+		uint32_t width = height / 0.5625;
 		gs_draw_sprite(context->comboTexture, 0,
-			context->diceimage.cx, context->image.cy + context->diceimage.cy);
+			width, height);
 	}
 }
 
@@ -522,6 +586,10 @@ static uint32_t dm_source_getwidth(void *data)
 	int width = context->image.cx;
 	if (context->showdicecount) {
 		width = context->diceimage.cx;
+	}
+	if (context->useplaymatlayout) {
+		width = dm_source_getheight(data) / 0.5625;
+		//width = width*4+ context->playmatgap;
 	}
 	return width;
 }
@@ -533,6 +601,10 @@ static uint32_t dm_source_getheight(void *data)
 	if (context->showdicecount) {
 		height += context->diceimage.cy;
 	}
+	if (context->useplaymatlayout) {
+		//height = height * 3;
+		height = context->height;
+	}
 	return height;
 }
 
@@ -543,7 +615,6 @@ static void dm_source_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "speed", 10);
 	obs_data_set_default_bool(settings, "dicecount", false);
 	obs_data_set_default_bool(settings, "usePlaymat", false);
-}
 }
 
 static void dm_source_show(void *data)
@@ -570,7 +641,7 @@ static void dm_source_tick(void *data, float seconds)
 
 		context->update_time_elapsed += seconds;
 
-		if (context->update_time_elapsed >= context->speed) {
+		if (context->update_time_elapsed >= context->speed && !context->useplaymatlayout) {
 			context->update_time_elapsed = 0;
 			context->currentIndex++;
 			if (context->currentIndex >= context->files.num)
