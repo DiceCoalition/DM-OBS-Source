@@ -37,7 +37,12 @@ struct dm_source {
 	bool visible;
 	bool showdicecount;
 	bool useplaymatlayout;
+	bool usecreatorview;
+	uint32_t cardmargins;
 	uint32_t height;
+	uint32_t width;
+	char *format;
+	bool hasFlipCard;
 };
 
 bool ConvertCharToBitmap(TCHAR* szFileName, TCHAR* szStr, int iWidth, int iHeight, int iFontSize)
@@ -333,7 +338,9 @@ bool updateFileList(struct dm_source *context)
 }
 
 void updateTextures(struct dm_source *context) {
-	if (context->useplaymatlayout)
+	context->hasFlipCard = false;
+	static bool flipcard = false;
+	if (context->useplaymatlayout || context->usecreatorview)
 	{		
 		obs_enter_graphics();
 		gs_image_file_free(&context->image);
@@ -345,13 +352,24 @@ void updateTextures(struct dm_source *context) {
 		obs_leave_graphics();
 
 		int maxheight = 0;
+		int maxwidth = 0;
 		obs_enter_graphics();
 		for (int i = 0; i < context->files.num; i++)
 		{
 			char* file = context->files.array[i];
 			gs_image_file_init(&context->image, file);
+			
 			if (context->image.cy > maxheight)
 				maxheight = context->image.cy;
+			int width = context->image.cx;
+			//check for flip card
+			if (context->image.cx > context->image.cy) {
+				width = width / 2;
+				context->hasFlipCard = true;
+			}
+			if (width > maxwidth)
+				maxwidth = width;
+			
 			gs_image_file_free(&context->image);
 		}
 
@@ -364,13 +382,47 @@ void updateTextures(struct dm_source *context) {
 		obs_leave_graphics();
 
 		obs_enter_graphics();
-				
+		uint32_t diceheight = 0;
+		if (context->showdicecount)
+		{
+			gs_image_file_init(&context->diceimage, context->dice.array[0]);
+
+			obs_enter_graphics();
+			gs_image_file_init_texture(&context->diceimage);
+			obs_leave_graphics();
+			diceheight = context->diceimage.cy;			
+		}
 		//uint32_t height = context->image.cy * 3;
-		uint32_t height = maxheight * 3;
+		uint32_t height = maxheight * 2 + context->cardmargins + diceheight*2;
+		uint32_t width = maxwidth * 5 + context->cardmargins * 4;
+		
+
+		if (context->useplaymatlayout) {
+			height = maxheight * 3;
+			height += diceheight * 3;
+			width = height / 0.5625;
+			height += (context->cardmargins * 3);			
+			width += (context->cardmargins * 4);
+		}		
+		context->width = width;
 		context->height = height;
-		uint32_t width = height / 0.5625;
 		context->comboTexture = gs_texture_create_gdi(width, height);
-		gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->image.texture, 0, 0, context->image.cx, context->image.cy);
+		uint32_t cardwidth = context->image.cx;
+		//check if this is a flip card
+		if (context->image.cx > context->image.cy)
+			cardwidth = cardwidth / 2;
+		uint32_t firstCardY = 0;
+		if (context->useplaymatlayout)
+			firstCardY = context->image.cy;
+		if (firstCardY != 0)
+			firstCardY += context->cardmargins;
+		gs_copy_texture_region(context->comboTexture, 0, firstCardY, context->image.texture, 0, 0, cardwidth, context->image.cy);
+		if (context->showdicecount)
+		{
+			gs_copy_texture_region(context->comboTexture, 0, firstCardY + context->image.cy, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
+			gs_image_file_free(&context->diceimage);
+		}
+		
 		obs_leave_graphics();
 		for (int i = 1; i < context->files.num; i++)
 		{
@@ -386,25 +438,109 @@ void updateTextures(struct dm_source *context) {
 				gs_image_file_init_texture(&cardimage);
 				obs_leave_graphics();
 
-				uint32_t xloc = cardimage.cx * (i % 4);
-				if (i % 4 > 1)
-					xloc = width - (cardimage.cx + (cardimage.cx * (i % 2)));
-				uint32_t yloc = cardimage.cy + (cardimage.cy * (i / 4));
-				if (i == 8) {
-					xloc = cardimage.cx;
-					yloc = 0;
+				uint32_t xloc = 0;
+				uint32_t yloc = 0;
+				cardwidth = cardimage.cx;
+				uint32_t cardheight = cardimage.cy;
+				if (cardimage.cx > cardimage.cy)
+					cardwidth = cardwidth / 2;
+				if (context->useplaymatlayout) {
+
+					//tried to get all clever with this but got to be a pain in the ass  with all the different cases...
+					// so now just 10 different if statements cause i'm a lazy POS.
+					if (i == 0) {
+						xloc = 0;
+						yloc = cardheight + context->cardmargins + diceheight;
+					}
+					else if (i == 1) {
+						xloc = cardwidth + context->cardmargins * 2;
+						yloc = cardheight + context->cardmargins + diceheight;
+					}
+					else if (i == 2) {
+						xloc = width - cardwidth * 2 - context->cardmargins * 2;
+						yloc = cardheight + context->cardmargins + diceheight;
+					}
+					else if (i == 3) {
+						xloc = width - cardwidth;
+						yloc = cardheight + context->cardmargins + diceheight;
+					}
+					else if (i == 4) {
+						xloc = 0;
+						yloc = cardheight *2 + context->cardmargins*2 + diceheight*2;
+					}
+					else if (i == 5) {
+						xloc = cardwidth + context->cardmargins * 2;
+						yloc = cardheight *2 + context->cardmargins * 2 + diceheight*2;
+					}
+					else if (i == 6) {
+						xloc = width - cardwidth * 2 - context->cardmargins * 2;
+						yloc = cardheight *2 + context->cardmargins * 2 + diceheight*2;
+					}
+					else if (i == 7) {
+						xloc = width - cardwidth;
+						yloc = cardheight * 2 + context->cardmargins * 2 + diceheight*2;
+					}
+					else if (i == 8) {
+						xloc = cardwidth + context->cardmargins * 2;
+						yloc = 0;
+					}
+					else if (i == 9) {
+						xloc = width - cardwidth * 2 - context->cardmargins * 2;
+						yloc = 0;
+					}
+					/*
+					else {
+						xloc = cardwidth * (i % 4);
+						if (i % 4 > 1)
+							xloc = width - (cardwidth + (cardwidth * (i % 2)));
+						yloc = cardimage.cy + (cardimage.cy * (i / 4));
+						if (xloc != 0) {
+							if (i % 4 > 1)
+								xloc -= (context->cardmargins * (i % 2));
+							else
+								xloc += (context->cardmargins * (i % 2));
+						}						
+					}
+					*/
+					
+						
 				}
-				else if (i == 9) {
-					xloc = width - cardimage.cx * 2;
-					yloc = 0;
+				else {
+					xloc = (cardwidth) * (i % 5);
+					yloc = (cardimage.cy) * (i / 5);
+					if (xloc != 0 && xloc != cardwidth * 5)
+						xloc += (context->cardmargins * (i % 5));
+					if (yloc != 0)
+						yloc += context->cardmargins *(i / 5) + diceheight * (i/5);
 				}
-				obs_enter_graphics();				
-				gs_copy_texture_region(context->comboTexture, xloc, yloc, cardimage.texture, 0, 0, cardimage.cx, cardimage.cy);
+				
+				//gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->image.texture, 0, 0, context->image.cx, context->image.cy);
+				obs_enter_graphics();
+				uint32_t srcxloc = 0;
+				if (cardimage.cx > cardimage.cy && context->currentIndex%2 == 0)
+					srcxloc = cardimage.cx / 2;
+				gs_copy_texture_region(context->comboTexture, xloc, yloc, cardimage.texture, srcxloc, 0, cardwidth, cardimage.cy);
+
 				gs_image_file_free(&cardimage);
 				obs_leave_graphics();
+				if (context->showdicecount)
+				{
+					gs_image_file_init(&context->diceimage, context->dice.array[i]);
+					if (!context->diceimage.loaded)
+						warn("failed to load texture '%s'", context->dice.array[0]);
 
-				//if (!context->diceimage.loaded)
-				//	warn("failed to load texture '%s'", context->dice.array[0]);
+					obs_enter_graphics();
+					gs_image_file_init_texture(&context->diceimage);
+					obs_leave_graphics();
+
+					obs_enter_graphics();
+
+					gs_copy_texture_region(context->comboTexture, xloc, yloc+cardheight, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
+					gs_image_file_free(&context->diceimage);
+					obs_leave_graphics();
+
+										
+				}
 			}
 		}
 		
@@ -424,13 +560,40 @@ void updateTextures(struct dm_source *context) {
 				context->comboTexture = NULL;
 			}
 			obs_leave_graphics();
-
+			
 			gs_image_file_init(&context->image, file);
+
+			context->height = context->image.cy;
+			context->width = context->image.cx;
 
 			obs_enter_graphics();
 			gs_image_file_init_texture(&context->image);
+			gs_texture_t * intermediateTexture;
+			if (context->width > context->height)	
+				intermediateTexture = gs_texture_create_gdi(context->width/2, context->height);
+			else
+				intermediateTexture = gs_texture_create_gdi(context->width, context->height);
 			obs_leave_graphics();
-
+			
+			//check for flip card and only draw one half of it
+			if (context->width > context->height) {
+				context->width = context->width / 2;
+				int xloc = 0;
+				if (!flipcard)
+					flipcard = true;
+				else {
+					xloc = context->width;
+					flipcard = false;
+				}				
+				obs_enter_graphics();
+				gs_copy_texture_region(intermediateTexture, 0, 0, context->image.texture, xloc, 0, context->width, context->height);
+				obs_leave_graphics();
+			}
+			else {
+				obs_enter_graphics();
+				gs_copy_texture_region(intermediateTexture, 0, 0, context->image.texture, 0, 0, context->width, context->height);
+				obs_leave_graphics();
+			}
 			if (!context->image.loaded) {
 				warn("failed to load texture '%s'", file);
 				//file list may of gotten corrupted by a bad update.  Try to re-parse
@@ -448,14 +611,27 @@ void updateTextures(struct dm_source *context) {
 
 				context->comboTexture = gs_texture_create_gdi(context->diceimage.cx, context->image.cy + context->diceimage.cy);
 
-				gs_copy_texture_region(context->comboTexture, 0, 0, context->image.texture, 0, 0, context->diceimage.cx, context->image.cy);
-				gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
-				obs_leave_graphics();
-
+				gs_copy_texture_region(context->comboTexture, 0, 0, intermediateTexture, 0, 0, context->width, context->height);
+				gs_copy_texture_region(context->comboTexture, 0, context->height, context->diceimage.texture, 0, 0, context->diceimage.cx, context->diceimage.cy);
+				obs_leave_graphics();				
+				context->height += context->diceimage.cy;
+				
 				if (!context->diceimage.loaded)
 					warn("failed to load texture '%s'", context->dice.array[0]);
 			}
+			else {
+				obs_enter_graphics();
+				context->comboTexture = gs_texture_create_gdi(context->width, context->height);
+				gs_copy_texture_region(context->comboTexture, 0, 0, intermediateTexture, 0, 0, context->width, context->height);
+				obs_leave_graphics();
+
+			}
+			obs_enter_graphics();
+			gs_texture_destroy(intermediateTexture);
+			obs_leave_graphics();
 		}
+		if (flipcard)
+			context->currentIndex--;
 	}
 }
 
@@ -500,13 +676,31 @@ static void dm_source_update(void *data, obs_data_t *settings)
 	char* imagefolder = (char*)obs_data_get_string(settings, "imagefolder");
 	uint32_t speed = (uint32_t)obs_data_get_int(settings, "speed");
 	bool dicecount = (bool)obs_data_get_bool(settings, "dicecount");
-	bool playmat = (bool)obs_data_get_bool(settings, "useplaymat");
-
+	//bool playmat = (bool)obs_data_get_bool(settings, "useplaymat");
+	//bool creator = (bool)obs_data_get_bool(settings, "usecreatorview");
+	uint32_t margins = (uint32_t)obs_data_get_int(settings, "margins");
+	char* format = obs_data_get_string(settings, "format");
+	context->format = format;
 	context->imagefolder = imagefolder;
 	context->tbstring = tbstring;
 	context->speed = speed;
 	context->showdicecount = dicecount;
-	context->useplaymatlayout = playmat;
+	if (strcmp(format, "Cycle Cards") == 0) {
+		context->useplaymatlayout = false;
+		context->usecreatorview = false;
+	}
+	else if (strcmp(format, "Playmat View") == 0) {
+		context->useplaymatlayout = true;
+		context->usecreatorview = false;
+	}
+	else {
+		context->useplaymatlayout = false;
+		context->usecreatorview = true;
+
+	}
+	//context->useplaymatlayout = playmat;
+	//context->usecreatorview = creator;
+	context->cardmargins = margins;
 	dm_source_load(data);
 }
 
@@ -524,10 +718,20 @@ static void dm_source_destroy(void *data)
 {
 	struct dm_source *context = data;
 	dm_source_unload(context);
-
+	if (context)
+		bfree(context);
+	/*
 	if (context->tbstring)
 		bfree(context->tbstring);
-	bfree(context);
+	if (context->imagefolder)
+		bfree(context->imagefolder);
+	if (context->comboTexture)
+		bfree(context->comboTexture);
+	if(context->src)
+		bfree(context->src);
+		*/
+	//if(context)
+	//	bfree(context);
 }
 
 static obs_properties_t *dm_source_properties(void *data)
@@ -540,10 +744,19 @@ static obs_properties_t *dm_source_properties(void *data)
 	obs_properties_add_text(props, "tbstring", obs_module_text("Team Builder String"), OBS_TEXT_DEFAULT);
 	obs_properties_add_path(props, "imagefolder", obs_module_text("Image Folder"), OBS_PATH_DIRECTORY, NULL, "c:/temp/cards");
 
+	obs_property_t *f = obs_properties_add_list(props, "format", obs_module_text("Display Format"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(f, "Cycle Cards", obs_module_text("Cycle Cards"));
+	obs_property_list_add_string(f, "Playmat View", obs_module_text("Playmat View"));
+	obs_property_list_add_string(f, "Creator View", obs_module_text("Creator View"));
+
 	obs_properties_add_int(props, "speed", obs_module_text("Cycle Speed (s)"), 0, 4096, 1);
 	obs_properties_add_bool(props, "dicecount", obs_module_text("Show Dice Count"));
+	
+	//obs_properties_add_bool(props, "useplaymat", obs_module_text("Use Playmat Layout"));
+	//obs_properties_add_bool(props, "usecreatorview", obs_module_text("Use Creator View"));
 
-	obs_properties_add_bool(props, "useplaymat", obs_module_text("Use Playmat Layout"));
+	obs_properties_add_int(props, "margins", obs_module_text("Card Margin"), 0, 1000, 1);
+
 	return props;
 }
 
@@ -553,18 +766,18 @@ static void dm_source_render(void *data, gs_effect_t *effect)
 
 	if (!context->image.texture)
 		return;
-	if (!context->useplaymatlayout) {
+	if (!context->useplaymatlayout && !context->usecreatorview) {
 		if (!context->showdicecount) {
 			gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"),
-				context->image.texture);
-			gs_draw_sprite(context->image.texture, 0,
-				context->image.cx, context->image.cy);
+				context->comboTexture);
+			gs_draw_sprite(context->comboTexture, 0,
+				context->width, context->height);
 		}
 		else {
 			gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"),
 				context->comboTexture);
 			gs_draw_sprite(context->comboTexture, 0,
-				context->diceimage.cx, context->image.cy + context->diceimage.cy);
+				context->width, context->height);
 		}
 	}
 	else
@@ -574,7 +787,7 @@ static void dm_source_render(void *data, gs_effect_t *effect)
 		//uint32_t width = context->image.cx * 4 + context->playmatgap;
 		//uint32_t height = context->image.cy * 3;
 		uint32_t height = context->height;
-		uint32_t width = height / 0.5625;
+		uint32_t width = context->width;
 		gs_draw_sprite(context->comboTexture, 0,
 			width, height);
 	}
@@ -583,28 +796,36 @@ static void dm_source_render(void *data, gs_effect_t *effect)
 static uint32_t dm_source_getwidth(void *data)
 {
 	struct dm_source *context = data;
-	int width = context->image.cx;
-	if (context->showdicecount) {
-		width = context->diceimage.cx;
-	}
-	if (context->useplaymatlayout) {
+	//int width = context->image.cx;
+	int width = context->width;
+	/*
+	if (context->useplaymatlayout){
 		width = dm_source_getheight(data) / 0.5625;
 		//width = width*4+ context->playmatgap;
 	}
+	if (context->usecreatorview) {
+		width = (context->image.cx * 5) + (context->cardmargins * 5);
+	}*/
+	/*if (context->useplaymatlayout || context->usecreatorview) {
+		width = context->width;
+	}*/
 	return width;
 }
 
 static uint32_t dm_source_getheight(void *data)
 {
 	struct dm_source *context = data;
-	int height = context->image.cy;
-	if (context->showdicecount) {
+	//int height = context->image.cy;
+	int height = context->height;
+	/*
+	if (context->useplaymatlayout || context->usecreatorview) {
+		//height = height * 3;
+		height = context->height;	
+	}
+	else if (context->showdicecount) {		
 		height += context->diceimage.cy;
 	}
-	if (context->useplaymatlayout) {
-		//height = height * 3;
-		height = context->height;
-	}
+	*/
 	return height;
 }
 
@@ -614,7 +835,10 @@ static void dm_source_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "imagefolder", "c:/temp/cards");
 	obs_data_set_default_int(settings, "speed", 10);
 	obs_data_set_default_bool(settings, "dicecount", false);
-	obs_data_set_default_bool(settings, "usePlaymat", false);
+	//obs_data_set_default_bool(settings, "useplaymat", false);
+	//obs_data_set_default_bool(settings, "usecreatorview", false);
+	obs_data_set_default_int(settings, "margins", 0);
+	obs_data_set_default_string(settings, "format", "Cycle Cards");
 }
 
 static void dm_source_show(void *data)
@@ -640,13 +864,15 @@ static void dm_source_tick(void *data, float seconds)
 		uint64_t frame_time = obs_get_video_frame_time();
 
 		context->update_time_elapsed += seconds;
-
-		if (context->update_time_elapsed >= context->speed && !context->useplaymatlayout) {
-			context->update_time_elapsed = 0;
-			context->currentIndex++;
-			if (context->currentIndex >= context->files.num)
-				context->currentIndex = 0;
-			updateTextures(context);
+		//don't update playmat or creator views unless they have a flipcard
+		if (context->update_time_elapsed >= context->speed){
+			if (((context->useplaymatlayout || context->usecreatorview) && context->hasFlipCard) || (strcmp(context->format, "Cycle Cards") == 0)) {
+				context->update_time_elapsed = 0;
+					context->currentIndex++;
+					if (context->currentIndex >= context->files.num)
+						context->currentIndex = 0;
+					updateTextures(context);
+			}
 		}
 		context->last_time = frame_time;
 	}
