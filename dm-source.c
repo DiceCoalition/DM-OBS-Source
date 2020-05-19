@@ -340,7 +340,7 @@ bool updateFileList(struct dm_source *context)
 void updateTextures(struct dm_source *context) {
 	context->hasFlipCard = false;
 	static bool flipcard = false;
-	if (context->useplaymatlayout || context->usecreatorview)
+	if (strcmp(context->format, "Cycle Cards") != 0)//context->useplaymatlayout || context->usecreatorview)
 	{		
 		obs_enter_graphics();
 		gs_image_file_free(&context->image);
@@ -393,8 +393,8 @@ void updateTextures(struct dm_source *context) {
 			diceheight = context->diceimage.cy;			
 		}
 		//uint32_t height = context->image.cy * 3;
-		uint32_t height = maxheight * 2 + context->cardmargins + diceheight*2;
-		uint32_t width = maxwidth * 5 + context->cardmargins * 4;
+		uint32_t height = maxheight + diceheight;
+		uint32_t width = maxwidth * 10 + context->cardmargins * 9;
 		
 
 		if (context->useplaymatlayout) {
@@ -403,7 +403,11 @@ void updateTextures(struct dm_source *context) {
 			width = height / 0.5625;
 			height += (context->cardmargins * 3);			
 			width += (context->cardmargins * 4);
-		}		
+		}
+		else if (context->usecreatorview) {
+			height = maxheight * 2 + context->cardmargins + diceheight * 2;
+			width = maxwidth * 5 + context->cardmargins * 4;
+		}
 		context->width = width;
 		context->height = height;
 		context->comboTexture = gs_texture_create_gdi(width, height);
@@ -505,7 +509,7 @@ void updateTextures(struct dm_source *context) {
 					
 						
 				}
-				else {
+				else if (context->usecreatorview) {
 					xloc = (cardwidth) * (i % 5);
 					yloc = (cardimage.cy) * (i / 5);
 					if (xloc != 0 && xloc != cardwidth * 5)
@@ -513,7 +517,10 @@ void updateTextures(struct dm_source *context) {
 					if (yloc != 0)
 						yloc += context->cardmargins *(i / 5) + diceheight * (i/5);
 				}
-				
+				else {
+					xloc = cardwidth * i + context->cardmargins*i;
+					yloc = 0;
+				}
 				//gs_copy_texture_region(context->comboTexture, 0, context->image.cy, context->image.texture, 0, 0, context->image.cx, context->image.cy);
 				obs_enter_graphics();
 				uint32_t srcxloc = 0;
@@ -693,10 +700,13 @@ static void dm_source_update(void *data, obs_data_t *settings)
 		context->useplaymatlayout = true;
 		context->usecreatorview = false;
 	}
-	else {
+	else if(strcmp(format, "Creator View") == 0) {
 		context->useplaymatlayout = false;
 		context->usecreatorview = true;
-
+	}
+	else {
+		context->useplaymatlayout = false;
+		context->usecreatorview = false;
 	}
 	//context->useplaymatlayout = playmat;
 	//context->usecreatorview = creator;
@@ -748,6 +758,7 @@ static obs_properties_t *dm_source_properties(void *data)
 	obs_property_list_add_string(f, "Cycle Cards", obs_module_text("Cycle Cards"));
 	obs_property_list_add_string(f, "Playmat View", obs_module_text("Playmat View"));
 	obs_property_list_add_string(f, "Creator View", obs_module_text("Creator View"));
+	obs_property_list_add_string(f, "Horizontal Row", obs_module_text("Horizontal Row"));
 
 	obs_properties_add_int(props, "speed", obs_module_text("Cycle Speed (s)"), 0, 4096, 1);
 	obs_properties_add_bool(props, "dicecount", obs_module_text("Show Dice Count"));
